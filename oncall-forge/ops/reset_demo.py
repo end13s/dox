@@ -16,7 +16,7 @@ def git(repo, *args: str) -> None:
 def main() -> None:
     repo = repo_path()
     port = int(os.environ.get("DEMO_PORT", "8000"))
-    good_tag = os.environ.get("DEMO_GOOD_TAG", "demo-ready")
+    good_tag = os.environ.get("DEMO_GOOD_TAG", "demo-dox")
     git(repo, "fetch", "origin", "--quiet")
     git(repo, "checkout", "main", "--quiet")
     git(repo, "reset", "--hard", good_tag, "--quiet")

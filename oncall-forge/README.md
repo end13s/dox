@@ -1,4 +1,8 @@
-# OnCall Forge
+# dox — OnCall Forge
+
+For the current Windows demo, use [the demo guide](docs/DOX-DEMO-GUIDE.md).
+The saved TrueForge agent is named `oncall-forge`. See the [root README](../README.md)
+for the deployment repository configuration before importing agent instructions.
 
 > Your on-call engineer at 3 AM: it investigates, proves the bug in a sandbox,
 > and waits for your OK before touching prod.
@@ -61,8 +65,9 @@ oncall-forge/
    ```
 6. Launch TrueForge and configure the model, sandbox, MCP servers, and the
    `oncall-forge` agent as described in `agent/trueforge-setup.md`.
-7. Break prod: `python ops/break_prod.py`. Watch `/status` spike, then paste the
-   alert into the TrueForge chat (or wait for `trigger/alert.ts`, stretch).
+7. Start `python ops/incident_monitor.py` in another terminal. Once healthy and
+   watching, run `python ops/break_prod.py`. Watch `/status` spike; the monitor
+   starts the investigation automatically. Do not also submit a manual alert.
 
 ## Reliable demo controls
 
@@ -77,8 +82,9 @@ python ops/break_prod.py
 python ops/reset_demo.py
 ```
 
-`reset_demo.py` restores the `demo-ready` tag, clears demo logs, closes stale
-pull requests when GitHub CLI is available, and starts a tracked service.
+`reset_demo.py` is a destructive legacy reset: it restores an old baseline,
+force-updates the demo branch, and closes open PRs. Do not use it for the current
+dashboard. After an approved recovery, repeat `break_prod.py` instead.
 
 ## Safety
 
