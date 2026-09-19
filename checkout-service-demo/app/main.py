@@ -1,38 +1,43 @@
-"""Demo "production" checkout service.
+"""Demo production checkout service and live incident dashboard."""
 
-Endpoints:
-  POST /checkout  - apply a discount code to a cart and "charge" it
-  GET  /health    - liveness probe
-  GET  /status    - HTML dashboard, auto-refreshing, big error-rate number + sparkline
-  GET  /metrics   - JSON error-rate window, consumed by the observability MCP server
-"""
+from __future__ import annotations
 
 import logging
+import json
+import os
+import subprocess
 import time
 import traceback
-from collections import deque
+from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
 
 from app.pricing import apply_discount
+from app.telemetry import Telemetry
+from app.log_records import recent_records
 
-LOG_DIR = Path(__file__).resolve().parent.parent / "logs"
-LOG_DIR.mkdir(exist_ok=True)
+ROOT = Path(__file__).resolve().parent.parent
+LOG_DIR = Path(os.environ.get('DOX_DATA_DIR', ROOT / 'logs'))
+LOG_DIR.mkdir(parents=True, exist_ok=True)
+APP_LOG = LOG_DIR / "app.log"
+DEPLOYS_LOG = LOG_DIR / "deploys.log"
 
 logger = logging.getLogger("checkout")
 logger.setLevel(logging.INFO)
-handler = logging.FileHandler(LOG_DIR / "app.log")
-handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s checkout: %(message)s", "%Y-%m-%dT%H:%M:%SZ"))
-logger.addHandler(handler)
+if not logger.handlers:
+    handler = logging.FileHandler(APP_LOG)
+    formatter = logging.Formatter("%(asctime)s %(levelname)s checkout: %(message)s", "%Y-%m-%dT%H:%M:%SZ")
+    formatter.converter = time.gmtime
+    handler.setFormatter(
+        formatter
+    )
+    logger.addHandler(handler)
 
-app = FastAPI(title="checkout-service-demo")
-
-# Rolling window of (timestamp, is_error) for the last WINDOW_S seconds.
-WINDOW_S = 300
-_events: deque[tuple[float, bool]] = deque()
+app = FastAPI(title="dox checkout service")
+telemetry = Telemetry(LOG_DIR / 'telemetry.sqlite3')
 
 
 class CheckoutRequest(BaseModel):
@@ -41,21 +46,30 @@ class CheckoutRequest(BaseModel):
 
 
 def _record(is_error: bool) -> None:
-    now = time.time()
-    _events.append((now, is_error))
-    cutoff = now - WINDOW_S
-    while _events and _events[0][0] < cutoff:
-        _events.popleft()
+    telemetry.record(is_error)
 
 
 def _error_rate(window_s: int) -> dict:
-    now = time.time()
-    cutoff = now - window_s
-    recent = [e for e in _events if e[0] >= cutoff]
-    total = len(recent)
-    errors = sum(1 for _, is_error in recent if is_error)
-    rate = (errors / total) if total else 0.0
-    return {"window_s": window_s, "requests": total, "errors": errors, "error_rate": round(rate, 4)}
+    return telemetry.metrics(window_s)
+
+
+def _git(*args: str) -> str:
+    try:
+        return subprocess.check_output(
+            ["git", *args], cwd=ROOT, text=True, stderr=subprocess.DEVNULL, timeout=2
+        ).strip()
+    except Exception:
+        return "unavailable"
+
+
+RUNNING_COMMIT = _git("rev-parse", "--short=12", "HEAD")
+RUNNING_MESSAGE = _git("log", "-1", "--pretty=%s")
+
+
+def _tail(path: Path, limit: int) -> list[str]:
+    if not path.exists():
+        return []
+    return path.read_text(encoding="utf-8", errors="replace").splitlines()[-limit:]
 
 
 @app.post("/checkout")
@@ -63,7 +77,12 @@ def checkout(req: CheckoutRequest):
     try:
         total = apply_discount(req.cart_total, req.code)
     except Exception:
-        logger.error("checkout failed for code=%r cart_total=%r\n%s", req.code, req.cart_total, traceback.format_exc())
+        logger.error(
+            "checkout failed for code=%r cart_total=%r\n%s",
+            req.code,
+            req.cart_total,
+            traceback.format_exc(),
+        )
         _record(is_error=True)
         raise HTTPException(status_code=500, detail="checkout failed")
     logger.info("checkout ok code=%r cart_total=%r total=%r", req.code, req.cart_total, total)
@@ -73,33 +92,38 @@ def checkout(req: CheckoutRequest):
 
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    return {"status": "ok", "commit": RUNNING_COMMIT}
 
 
 @app.get("/metrics")
-def metrics():
-    return JSONResponse(_error_rate(60))
+def metrics(window_s: int = Query(default=60, ge=1, le=300)):
+    return JSONResponse(_error_rate(window_s))
+
+
+@app.get("/status-data")
+def status_data():
+    metrics_now = _error_rate(60)
+    recent_errors = recent_records(APP_LOG, limit=5)
+    deploys = _tail(DEPLOYS_LOG, 5)
+    try:
+        incident = json.loads((LOG_DIR / 'incident.json').read_text(encoding='utf-8'))
+        # Only publish explicitly public progress; never expose monitor calls or arguments.
+        incident = {key: incident[key] for key in ('stage', 'session_id', 'milestones', 'updated_at', 'monitor_error') if key in incident}
+        incident['stale'] = time.time()-incident.get('updated_at', 0) > 20
+    except (OSError, ValueError):
+        incident = {'stage': 'Monitor not started', 'stale': True, 'milestones': []}
+    return {
+        **metrics_now,
+        "commit": RUNNING_COMMIT,
+        "commit_message": RUNNING_MESSAGE,
+        "deploys": deploys,
+        "recent_errors": recent_errors,
+        "history": telemetry.history(),
+        "incident": incident,
+        "updated_at": datetime.now(timezone.utc).strftime("%H:%M:%S UTC"),
+    }
 
 
 @app.get("/status", response_class=HTMLResponse)
 def status():
-    m = _error_rate(60)
-    pct = m["error_rate"] * 100
-    color = "#2ecc71" if pct < 1 else ("#f1c40f" if pct < 10 else "#e74c3c")
-    return f"""
-    <html>
-      <head>
-        <meta http-equiv="refresh" content="2">
-        <title>checkout-service-demo status</title>
-        <style>
-          body {{ font-family: system-ui, sans-serif; background: #111; color: #eee; text-align: center; padding-top: 4rem; }}
-          .big {{ font-size: 6rem; font-weight: 700; color: {color}; }}
-          .label {{ color: #999; }}
-        </style>
-      </head>
-      <body>
-        <div class="big">{pct:.1f}%</div>
-        <div class="label">error rate (last {m['window_s']}s) &middot; {m['requests']} requests, {m['errors']} errors</div>
-      </body>
-    </html>
-    """
+    return (Path(__file__).with_name("dashboard.html")).read_text(encoding="utf-8")
