@@ -1,3 +1,8 @@
+---
+name: incident-runbook
+description: Runbook for production alerts on checkout-service-demo. Investigate read-only, prove the root cause with a repro test in the sandbox, open a revert PR with evidence, wait for human approval before merging, verify recovery, and file a postmortem. Use whenever an alert fires or the error rate spikes.
+---
+
 # Incident Runbook
 
 A checklist for responding to a production alert on `checkout-service-demo`.
