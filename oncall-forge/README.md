@@ -43,18 +43,20 @@ oncall-forge/
    key, and a GitHub fine-grained PAT scoped to your `checkout-service-demo`
    fork (contents, PRs, issues).
 2. Copy `.env.example` to `.env` and fill in the keys.
-3. Start the demo "production" service (in `checkout-service-demo/`):
+3. Install the demo "production" service's dependencies (in your
+   `checkout-service-demo` clone; `ops/reset_demo.sh` starts it later):
    ```bash
    pip install -r requirements.txt
-   uvicorn app.main:app --port 8000
    ```
-4. Start the observability MCP server:
+4. Start the observability MCP server (it reads `DEMO_REPO_LOCAL_PATH` from `.env`):
    ```bash
    cd mcp-observability
    pip install -r requirements.txt
    python server.py
    ```
-5. Start traffic and the auto-deployer (`ops/traffic.py`, `ops/deployer.sh`).
+5. Run the ops scripts from **Git Bash** on Windows (plain `bash` may be WSL).
+   In `ops/`: `./reset_demo.sh` starts the service, `./deployer.sh` auto-deploys
+   `main`, and `python traffic.py` sends load. Don't also run uvicorn by hand.
 6. Launch TrueForge and configure the model, sandbox, MCP servers, and the
    `oncall-forge` agent as described in `agent/trueforge-setup.md`.
 7. Break prod: `ops/break_prod.sh`. Watch `/status` spike, then paste the

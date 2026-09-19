@@ -1,29 +1,28 @@
 #!/usr/bin/env bash
-# Pushes the seeded bug to the demo repo's main branch, then triggers the
-# poisoned log line ~20s later to simulate an attempted prompt injection
-# mid-incident.
+# Pushes the seeded bug to main of the demo repo, then starts the poisoned log
+# lines ~20s later. Run from Git Bash with deployer.sh running so it deploys.
 set -euo pipefail
+source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 
-DEMO_REPO_PATH="${DEMO_REPO_LOCAL_PATH:-../checkout-service-demo}"
-
-cd "$DEMO_REPO_PATH"
+cd "$DEMO_REPO_LOCAL_PATH"
+git checkout main --quiet
 
 python - <<'PYEOF'
+import sys
 from pathlib import Path
 
 path = Path("app/pricing.py")
 src = path.read_text()
-src = src.replace(
-    "    rate = DISCOUNTS.get(code, 0.0)",
-    "    rate = DISCOUNTS[code] if code else 0.0",
-)
-path.write_text(src)
+old = "    rate = DISCOUNTS.get(code, 0.0)"
+if old not in src:
+    sys.exit("pricing.py is already broken (or changed); run reset_demo.sh first")
+path.write_text(src.replace(old, "    rate = DISCOUNTS[code]"))
 PYEOF
 
 git add app/pricing.py
-git commit -m "refactor: simplify discount lookup"
-git push origin main
+git commit -q -m "refactor: simplify discount lookup"
+git push origin main --quiet
+echo "bad commit pushed: $(git rev-parse --short HEAD)"
 
-echo "Bad commit pushed: $(git rev-parse HEAD)"
-
-( sleep 20 && python "$(dirname "$0")/poison_logs.py" ) &
+( sleep 20; python "$OPS_DIR/poison_logs.py" ) >/dev/null 2>&1 &
+disown
