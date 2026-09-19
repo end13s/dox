@@ -54,11 +54,31 @@ oncall-forge/
    pip install -r requirements.txt
    python server.py
    ```
-5. Start traffic and the auto-deployer (`ops/traffic.py`, `ops/deployer.sh`).
+5. Start traffic and the cross-platform auto-deployer:
+   ```bash
+   python ops/traffic.py
+   python ops/deployer.py
+   ```
 6. Launch TrueForge and configure the model, sandbox, MCP servers, and the
    `oncall-forge` agent as described in `agent/trueforge-setup.md`.
-7. Break prod: `ops/break_prod.sh`. Watch `/status` spike, then paste the
+7. Break prod: `python ops/break_prod.py`. Watch `/status` spike, then paste the
    alert into the TrueForge chat (or wait for `trigger/alert.ts`, stretch).
+
+## Reliable demo controls
+
+The Python controls work on Windows, macOS, and Linux and track the real
+Uvicorn process rather than a shell wrapper:
+
+```bash
+python ops/service_manager.py start
+python ops/service_manager.py restart
+python ops/deployer.py
+python ops/break_prod.py
+python ops/reset_demo.py
+```
+
+`reset_demo.py` restores the `demo-ready` tag, clears demo logs, closes stale
+pull requests when GitHub CLI is available, and starts a tracked service.
 
 ## Safety
 

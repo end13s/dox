@@ -1,6 +1,6 @@
 # Demo Script
 
-1. `/status`: all green. Run `ops/break_prod.sh`. The error rate jumps.
+1. `/status`: all green. Run `python ops/break_prod.py`. The error rate jumps.
 2. Alert → agent starts (SDK trigger, or paste the alert). Show the two
    subagents working.
 3. Show the agent flagging the poisoned log line: *"ignored an embedded
@@ -16,7 +16,8 @@
 
 ## Demo safety
 
-- Reset with `ops/reset_demo.sh` before every take.
+- Reset with `python ops/reset_demo.py` before every take.
+- Run `python ops/deployer.py` in a dedicated terminal during the demo.
 - Keep the recorded video ready as a fallback.
 - Have a pre-run finished session open in another tab as a fallback.
 
