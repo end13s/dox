@@ -27,6 +27,9 @@ Exact configuration steps. Add screenshots here as you go.
 - **Require human approval on:** `merge_pull_request`, `restart_service`,
   and any delete / force-push tool if present. Prefer not enabling delete
   tools at all.
+- **Subagents:** enable dynamic sub-agents (`config.dynamic_sub_agents`).
+  The briefs live inside `instructions.md`; nothing to create separately.
+- **Sandbox:** enable it on the agent (skills require it).
 - **Skill:** `incident-runbook` (commit it first, then register it).
 - **Instructions:** `agent/instructions.md` (paste as the system prompt).
 
